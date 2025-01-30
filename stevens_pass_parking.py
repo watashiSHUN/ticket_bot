@@ -1,30 +1,56 @@
+import os
 import time
 
 import requests
+from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
+load_dotenv()
 # webdriver works between selenium and chrome
 # it translate commands from selenium into actions that Chrome can execute.
 # TODO(shunxian): why use service? not needed
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.action_chains import ActionChains
+
+# NOTE: not used
+# from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 
 JAVASCRIPT_WAIT_TIME = 2  # seconds
-PARKING_DATE = "February 8"  # Date to check parking availability
+PARKING_DATE = "February 1"  # Date to check parking availability
 
 
-def check_parking_availability():
+def login(driver):
+    # Go to the login page
+    driver.get("https://reservenski.parkstevenspass.com/login")
+    time.sleep(JAVASCRIPT_WAIT_TIME)  # Wait for JavaScript to load the content
+
+    # Find the username field
+    username = driver.find_element(By.ID, "emailAddress")
+    # Enter the username
+    username.send_keys(os.getenv("STEVENS_PASS_USERNAME"))
+
+    # Find the password field
+    password = driver.find_element(By.ID, "password")
+    # Enter the password
+    password.send_keys(os.getenv("STEVENS_PASS_PASSWORD"))
+
+    # Find the login button
+    login_button = driver.find_element(By.XPATH, "//button[text()='Login']")
+
+    # Click the login button
+    login_button.click()
+
+    # Wait for the page to load
+    time.sleep(JAVASCRIPT_WAIT_TIME)
+
+
+def check_parking_availability(driver):
     url = "https://reservenski.parkstevenspass.com/select-parking"  # URL for Stevens Pass parking page
-
-    driver = webdriver.Chrome()
 
     try:
         print(f"Opening URL: {url}")
         driver.get(url)
-        # make the page full screen
-        driver.maximize_window()
         time.sleep(JAVASCRIPT_WAIT_TIME)  # Wait for JavaScript to load the content
 
         # Scrape the page content
@@ -53,15 +79,15 @@ def check_parking_availability():
         print(f"Found {len(possible_date_divs)} possible date divs.")
 
         # Create action chain object
-        action = ActionChains(driver)
 
         if possible_date_divs:
             for date in possible_date_divs:
                 print(f"Clicking on date div: {date}")
-                # Click on the item
-                action.click(on_element=date)
-                # Perform the operation
-                action.perform()
+                try:
+                    date.click()
+                except Exception as e:
+                    print(f"Error clicking on date div: {e}")
+                    continue  # try next click
 
                 print(f"Looking for carpool parking...")
                 time.sleep(
@@ -79,25 +105,42 @@ def check_parking_availability():
 
                 if carpool_slot:
                     print("Find Carpool parking available!")
-                    # assume there's only 1
-                    # Click on the item
-                    action.click(on_element=carpool_slot[0])
-                    # Perform the operation
-                    action.perform()
+                    try:
+                        carpool_slot[0].click()
+                        # redirect to honk, click on park for free
+                        time.sleep(JAVASCRIPT_WAIT_TIME * 3)
+                        reserve = driver.find_element(
+                            By.XPATH, "//*[contains(text(), 'Park For Free')]"
+                        )
+                        reserve.click()
+                        time.sleep(JAVASCRIPT_WAIT_TIME)
+                        confirm = driver.find_element(
+                            By.XPATH, "//*[contains(text(), 'Confirm')]"
+                        )
+                        confirm.click()
+                    except Exception as e:
+                        print(f"Error clicking on carpool slot: {e}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
 
     finally:
-        time.sleep(30)
+        time.sleep(10)
         driver.quit()
 
 
 if __name__ == "__main__":
-    # TODO(shunxian): make a whileloop for busy pooling
-    # TODO(shunxian): add login module
-    # Uncomment the following lines to periodically check availability
-    # while True:
-    print("Checking parking availability...")
-    check_parking_availability()
-    # time.sleep(3600)  # Check every hour
+    while True:
+        # Create a new instance of the Chrome driver
+        driver = webdriver.Chrome()
+        # make the page full screen
+        driver.maximize_window()
+
+        # TODO(shunxian): make a whileloop for busy pooling
+        # TODO(shunxian): add login module
+        # Uncomment the following lines to periodically check availability
+        login(
+            driver
+        )  # TODO(shunxian): Store cookie instead of store username/password (although, if its only on my laptop, maybe it's ok)
+        check_parking_availability(driver)
+        time.sleep(1800)  # Check every hour
